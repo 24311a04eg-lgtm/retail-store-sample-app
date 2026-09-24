@@ -1,0 +1,137 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - gitops
+    paths:
+      - 'src/**'
+      - '!src/**/chart/**'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  ECR_REPO: retail-store
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed services
+        id: changes
+        shell: bash
+        run: |
+          SERVICES=("ui" "catalog" "cart" "checkout" "orders")
+          CHANGED=""
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            CHANGED="ui catalog cart checkout orders"
+          else
+            CHANGED_FILES=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}")
+
+            echo "Changed files:"
+            echo "$CHANGED_FILES"
+
+            for SERVICE in "${SERVICES[@]}"; do
+              if echo "$CHANGED_FILES" \
+                | grep -q "^src/${SERVICE}/" \
+                && echo "$CHANGED_FILES" \
+                | grep "^src/${SERVICE}/" \
+                | grep -qv "^src/${SERVICE}/chart/"; then
+
+                CHANGED="${CHANGED} ${SERVICE}"
+                echo "Changed: ${SERVICE}"
+              fi
+            done
+          fi
+
+          CHANGED=$(echo "$CHANGED" | xargs)
+
+          echo "Services: ${CHANGED}"
+          echo "services=${CHANGED}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        if: steps.changes.outputs.services != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        if: steps.changes.outputs.services != ''
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push images
+        if: steps.changes.outputs.services != ''
+        shell: bash
+        run: |
+          TAG="${GITHUB_SHA::7}"
+          ECR_BASE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}"
+
+          for SERVICE in ${{ steps.changes.outputs.services }}; do
+            IMAGE_TAG="${SERVICE}-${TAG}"
+            ECR_IMAGE="${ECR_BASE}:${IMAGE_TAG}"
+            VALUES_FILE="src/${SERVICE}/chart/values.yaml"
+
+            echo "Building ${SERVICE}"
+            docker build -t "${ECR_IMAGE}" "src/${SERVICE}/"
+            docker push "${ECR_IMAGE}"
+
+            python3 - <<PY
+          from pathlib import Path
+          import re
+
+          path = Path("${VALUES_FILE}")
+          text = path.read_text()
+
+          repo = "${ECR_BASE}"
+          tag = "${IMAGE_TAG}"
+
+          text, repo_count = re.subn(
+              r'(^image:\n(?:^[ ]+.*\n)*?^[ ]+repository: ).*$',
+              rf'\g<1>{repo}',
+              text,
+              count=1,
+              flags=re.MULTILINE
+          )
+
+          text, tag_count = re.subn(
+              r'(^image:\n(?:^[ ]+.*\n)*?^[ ]+tag: ).*$',
+              rf'\g<1>"{tag}"',
+              text,
+              count=1,
+              flags=re.MULTILINE
+          )
+
+          if repo_count != 1 or tag_count != 1:
+              raise SystemExit("Failed to update image fields")
+
+          path.write_text(text)
+          PY
+          done
+
+      - name: Commit and push Helm updates
+        if: steps.changes.outputs.services != ''
+        run: |
+          git config user.name "GitOps Bot"
+          git config user.email "gitops@github.com"
+
+          if git diff --quiet; then
+            echo "No Helm changes"
+            exit 0
+          fi
+
+          git add src/*/chart/values.yaml
+          git commit -m "Update service images to ${GITHUB_SHA::7}"
+          git push origin gitops
