@@ -4,11 +4,10 @@
 
 replicaCount: 1
 image:
-  repository: 565393041505.dkr.ecr.eu-west-1.amazonaws.com/retail-store-sample-ui
+  repository: public.ecr.aws/aws-containers/retail-store-sample-ui
   pullPolicy: Always
-  tag: "main-11878d8"
-imagePullSecrets:
-  - name: regcred
+  tag: "1.2.2"
+imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 serviceAccount:
@@ -112,7 +111,7 @@ ingresses:
   - name: domain
     className: "nginx"
     hosts:
-      - retail-store.iemafzalhassan.in
+      - retail-store.trainwithshubham.com
     annotations:
       nginx.ingress.kubernetes.io/ssl-redirect: "true"
       nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
@@ -124,12 +123,12 @@ ingresses:
     tls:
       - secretName: tls-secret
         hosts:
-          - retail-store.iemafzalhassan.in
+          - retail-store.trainwithshubham.com
 
 # Cert Manager Configuration
 certManager:
   createClusterIssuer: true
-  email: iemafzalhassan@gmail.com
+  email: dangerphoenix45@gmail.com
   clusterIssuerName: "letsencrypt-prod"
   server: "https://acme-v02.api.letsencrypt.org/directory"
   privateKeySecretName: "letsencrypt-prod-key"
