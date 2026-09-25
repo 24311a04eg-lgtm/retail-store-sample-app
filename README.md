@@ -1,4 +1,4 @@
-# Retail Store Sample App - GitOps with EKS Auto Mode
+# Retail Store Sample App: GitOps with Amazon EKS Auto Mode
 
 ![Banner](./docs/images/banner.png)
 
@@ -17,11 +17,12 @@
   </strong>
 </div>
 
-This is a sample application designed to illustrate various concepts related to containers on AWS. It presents a sample retail store application including a product catalog, shopping cart and checkout, deployed using modern DevOps practices including GitOps and Infrastructure as Code.
+This project deploys a complete retail store platform on AWS using Amazon EKS Auto Mode, Terraform, GitHub Actions, and Argo CD. It combines five containerized microservices into a working application and demonstrates an end-to-end workflow for infrastructure provisioning, image delivery, and GitOps-based deployment.
 
 ## Table of Contents
 
 - [Overview](#overview)
+- [Project Structure](#project-structure)
 - [Application Architecture](#application-architecture)
 - [Infrastructure Architecture](#infrastructure-architecture)
 - [Quick Start](#quick-start)
@@ -30,8 +31,8 @@ This is a sample application designed to illustrate various concepts related to 
   - [Production (GitOps Branch)](#-production-gitops-branch)
 - [Prerequisites](#prerequisites)
 - [Getting Started](#getting-started)
-- [Deployment Steps](#follow-these-steps-to-deploy-the-application)
-  - [Step 1: Configure AWS Credentials](#step-1-configure-aws-with-root-user-credentials)
+- [Deployment Steps](#deployment-steps)
+  - [Step 1: Configure AWS Credentials](#step-1-configure-aws-credentials)
   - [Step 2: Clone the Repository](#step-2-clone-the-repository)
   - [Step 3: Deploy Infrastructure with Terraform](#step-3-deploy-infrastructure-with-terraform)
     - [Phase 1: Create EKS Cluster](#phase-1-of-terraform-create-eks-cluster)
@@ -42,8 +43,9 @@ This is a sample application designed to illustrate various concepts related to 
   - [Step 7: ArgoCD Deployment](#step-7-argo-cd-automated-deployment)
   - [Step 8: ArgoCD UI Access](#step-8-port-forward-to-argo-cd-ui-and-login)
   - [Step 9: Monitor Deployment](#step-9-monitor-application-deployment)
-  - [Cleanup](#step-11-cleanup)
-  - [License](#license)
+  - [Step 10: Cleanup](#step-10-cleanup)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
 
 ## Overview
 
@@ -54,6 +56,18 @@ The Retail Store Sample App demonstrates a modern microservices architecture dep
 - **Cart Service**: Java-based shopping cart API
 - **Orders Service**: Java-based order management API
 - **Checkout Service**: Node.js-based checkout orchestration API
+
+## Project Structure
+
+```text
+argocd/       Argo CD projects and application definitions
+docs/         Documentation assets and diagrams
+images/       Screenshots used in this README
+src/          Retail microservices and their Helm charts
+terraform/    AWS networking, EKS, IAM, and platform configuration
+```
+
+Each service under `src/` contains its application source, container configuration, tests, and Helm chart. The Terraform configuration provisions the AWS platform, while the Argo CD manifests define how applications are synchronized into the cluster.
 
 ## Application Architecture
 
@@ -86,7 +100,7 @@ The Infrastructure Architecture follows cloud-native best practices:
 **Want to deploy immediately?** Follow these steps for a basic deployment:
 
 1. **Install Prerequisites**: AWS CLI, Terraform, kubectl, Docker, Helm
-2. **Configure AWS**: `aws configure` with appropriate credentials
+2. **Configure AWS**: `aws configure` with an IAM user, IAM Identity Center profile, or approved deployment identity
 3. **Clone Repository**: `git clone https://github.com/iemafzalhassan/retail-store-sample-app.git`
 4. **Deploy Infrastructure**: Run Terraform in two phases (see [Getting Started](#getting-started))
 5. **Access Application**: Get load balancer URL and browse the retail store
@@ -125,9 +139,12 @@ Before you begin, ensure you have the following tools installed:
 - **Docker** (for local development)
 - **Helm** 
 
+> [!IMPORTANT]
+> Use an IAM principal with only the permissions required for this deployment. Do not use AWS root credentials, commit access keys to Git, or place credentials directly in workflow files.
+
 ## Getting Started
 
-Follow these steps to **install Prerequisites:**
+Follow these steps to install the required tools before starting the deployment.
 
 - #### 1. AWS CLI:
 
@@ -257,11 +274,11 @@ Follow these steps to **install Prerequisites:**
       ```
 
 
-## Follow these steps to deploy the application:
+## Deployment Steps
 
-### Step 1. Configure AWS with **`Root User`** Credentials:
+### Step 1: Configure AWS Credentials
 
-  Ensure your AWS CLI is configured with the **Root user credentials:**
+Configure the AWS CLI with an IAM user, IAM Identity Center profile, or another approved deployment identity:
 
 ```sh
 aws configure
@@ -274,7 +291,7 @@ git clone https://github.com/iemafzalhassan/retail-store-sample-app.git
 cd retail-store-sample-app
 ```
 
-### Step 3. Deploy Infrastructure with Terraform:
+### Step 3: Deploy Infrastructure with Terraform
 
 The deployment is split into two phases for better control:
 
@@ -282,7 +299,7 @@ The deployment is split into two phases for better control:
 ### Phase 1 of Terraform: Create EKS Cluster 
 
 ```sh
-cd retail-store-sample-app/terraform
+cd terraform
 terraform init
 terraform apply -target=module.retail_app_eks -target=module.vpc --auto-approve
 ```
@@ -297,9 +314,12 @@ This creates the core infrastructure, including:
 - Security groups and IAM roles
   
 
-### Step 4: Update kubeconfig to Access the Amazon EKS Cluster:
+### Step 4: Update kubeconfig to Access the Amazon EKS Cluster
+
+Terraform creates the cluster with a unique suffix. Run this command from the `terraform` directory so the generated cluster name is used:
+
 ```
-aws eks update-kubeconfig --name retail-store --region <region>
+aws eks update-kubeconfig --name "$(terraform output -raw cluster_name)" --region <region>
 ```
 
 ### Phase 2 of Terraform: Once you update kubeconfig, apply the Remaining Configuration:
@@ -309,7 +329,7 @@ terraform apply --auto-approve
 ```
 
 This deploys:
-- ArgoCD for Setup GitOps
+- Argo CD for GitOps application delivery
 - NGINX Ingress Controller
 - Cert Manager for SSL certificates
 
@@ -322,7 +342,7 @@ This deploys:
     ```
 
 > [!NOTE]
-> Let's move forward with GitOps principle utilising Amazon private registry to create private registry and store images.
+> The next step enables the private ECR workflow. GitHub Actions builds service images, pushes them to Amazon ECR, and updates the deployment configuration used by Argo CD.
 ### Step 5: GitHub Actions:
 
 For GitHub Actions, first configure secrets so the pipelines can be automatically triggered:
@@ -345,7 +365,7 @@ GitHub Actions will automatically build and push the updated Docker images to Am
 
 
 
-<img width="2868" height="1130" alt="image" src="https://github.com/user-attachments/assets/f29c3416-d630-4463-81d2-aaa8af9a02da" />
+![GitHub Actions deployment](./images/ci-cd.png)
 
 
 ### Verify Deployment
@@ -366,7 +386,9 @@ kubectl get svc -n ingress-nginx
 
 Use the EXTERNAL-IP of the ingress-nginx-controller service to access the application.
 
-<img width="2912" height="1756" alt="image" src="https://github.com/user-attachments/assets/095077d6-d3cb-48f6-b021-e977db5fb242" />
+![Retail store application products page](./images/image2.png)
+
+![Retail store application home page](./images/image3.png)
 
 ### Step 7: Argo CD Automated Deployment:
 
@@ -375,6 +397,8 @@ Use the EXTERNAL-IP of the ingress-nginx-controller service to access the applic
 ```
 kubectl get pods -n argocd
 ```
+
+![ArgoCD applications](./images/image1.png)
 
 
 ### Step 8: Port-forward to Argo CD UI and login:
@@ -398,18 +422,13 @@ Password: <output of previous command>
 
 
 
-### Argocd UI
-
-<img width="2915" height="1755" alt="image" src="https://github.com/user-attachments/assets/20c00b41-bc87-4038-b06f-56867340a269" />
-
-
 ### Step 9: Monitor application deployment
 ```
 kubectl get pods -n retail-store
 kubectl get ingress -n retail-store
 ```
 
-### Step 11: Cleanup:
+### Step 10: Cleanup
 
 To delete all resources created by Terraform:
 
@@ -428,7 +447,32 @@ terraform destroy --auto-approve
 <img width="1139" height="439" alt="image" src="https://github.com/user-attachments/assets/5258761a-01c4-49d0-b6f3-997fc10a9f35" />
 
 > [!NOTE]
-> ECR Repositories you need to Delete it from AWS Console Manually.
+> Delete the ECR repositories manually from the AWS Console after the Terraform resources have been removed.
+
+## Troubleshooting
+
+### The load balancer has no external address
+
+Wait a few minutes for AWS to provision the load balancer, then check its status again:
+
+```bash
+kubectl get svc -n ingress-nginx
+kubectl describe svc ingress-nginx-controller -n ingress-nginx
+```
+
+### Argo CD applications are out of sync
+
+Check the application status and inspect the related pods and events:
+
+```bash
+kubectl get applications -n argocd
+kubectl get pods -n retail-store
+kubectl get events -n retail-store --sort-by=.lastTimestamp
+```
+
+### GitHub Actions cannot push to Amazon ECR
+
+Verify that the repository secrets are present, the AWS region and account ID are correct, and the IAM principal has permission to authenticate to ECR and push images. Never solve this by committing credentials to the repository.
 
 
 
